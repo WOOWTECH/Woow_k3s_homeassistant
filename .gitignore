@@ -1,0 +1,14 @@
+# Helm packaging output
+*.tgz
+charts/
+
+# Local overrides (never commit real secrets)
+values.local.yaml
+values-*.local.yaml
+
+# Editor / OS cruft
+*.swp
+*.bak
+*.orig
+*.tmp
+.DS_Store

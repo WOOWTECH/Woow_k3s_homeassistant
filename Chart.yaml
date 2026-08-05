@@ -1,0 +1,21 @@
+apiVersion: v2
+name: homeassistant
+description: >-
+  Home Assistant smart-home platform on K3s/Kubernetes, backed by a
+  PostgreSQL StatefulSet as the recorder database (replaces SQLite).
+type: application
+version: 1.0.0
+appVersion: "stable"
+kubeVersion: ">=1.24.0-0"
+keywords:
+  - homeassistant
+  - home-automation
+  - iot
+  - postgresql
+home: https://github.com/WOOWTECH/Woow_k3s_homeassistant
+sources:
+  - https://github.com/WOOWTECH/Woow_k3s_homeassistant
+  - https://github.com/home-assistant/core
+maintainers:
+  - name: WoowTech
+    url: https://github.com/WOOWTECH

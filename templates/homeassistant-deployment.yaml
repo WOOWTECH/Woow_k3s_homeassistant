@@ -3,14 +3,14 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: homeassistant
-  namespace: homeassistant
+  namespace: {{ .Values.namespace.name }}
   labels:
     app: homeassistant
     component: homeassistant
 spec:
   replicas: 1
   strategy:
-    type: Recreate
+    type: Recreate          # single-writer for the /config volume
   selector:
     matchLabels:
       app: homeassistant
@@ -24,17 +24,18 @@ spec:
       # hostNetwork: true allows Home Assistant to discover devices on the
       # local network (mDNS, SSDP, etc.). If device discovery is not needed,
       # set this to false and rely on the NodePort Service instead.
-      hostNetwork: false
+      hostNetwork: {{ .Values.homeassistant.hostNetwork }}
       dnsPolicy: ClusterFirst
+      {{- if .Values.postgres.enabled }}
       initContainers:
         # Wait for PostgreSQL to be ready before starting Home Assistant
         - name: wait-for-postgres
-          image: postgres:16-alpine
+          image: "{{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag }}"
           command:
             - sh
             - -c
             - |
-              until pg_isready -h postgres.homeassistant.svc.cluster.local -p 5432 -U homeassistant; do
+              until pg_isready -h postgres.{{ .Values.namespace.name }}.svc.cluster.local -p 5432 -U homeassistant; do
                 echo "Waiting for PostgreSQL to be ready..."
                 sleep 2
               done
@@ -45,9 +46,11 @@ spec:
                 secretKeyRef:
                   name: postgres-secret
                   key: POSTGRES_PASSWORD
+      {{- end }}
       containers:
         - name: homeassistant
-          image: ghcr.io/home-assistant/home-assistant:stable
+          image: "{{ .Values.homeassistant.image.repository }}:{{ .Values.homeassistant.image.tag }}"
+          imagePullPolicy: {{ .Values.homeassistant.image.pullPolicy }}
           ports:
             - containerPort: 8123
               name: http
@@ -65,12 +68,7 @@ spec:
             - name: ha-config
               mountPath: /config
           resources:
-            requests:
-              cpu: 200m
-              memory: 512Mi
-            limits:
-              cpu: "2"
-              memory: 2Gi
+            {{- toYaml .Values.homeassistant.resources | nindent 12 }}
           livenessProbe:
             httpGet:
               path: /

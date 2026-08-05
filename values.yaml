@@ -1,0 +1,83 @@
+# Default values for the homeassistant chart.
+# Defaults reproduce the original Kustomize deployment 1:1
+# (namespace homeassistant, NodePort 31812, local-path storage,
+# PostgreSQL 16 recorder backend).
+
+namespace:
+  # Create the target namespace as part of the release.
+  # Set to false if the namespace is managed elsewhere.
+  create: true
+  name: homeassistant
+
+homeassistant:
+  image:
+    repository: ghcr.io/home-assistant/home-assistant
+    tag: stable
+    # "Always" matches the original manifests' behaviour with a mutable
+    # tag (Kubernetes defaults to Always for :latest; :stable moves too,
+    # so we set Always explicitly for parity).
+    pullPolicy: Always
+
+  # Exposed to the homeassistant container via a ConfigMap (env valueFrom).
+  # Also consumed by the postgres StatefulSet for timezone alignment.
+  config:
+    TZ: "Asia/Taipei"
+
+  # hostNetwork lets HA discover LAN devices (mDNS, SSDP). Keep false to
+  # rely on the NodePort Service; set true when device discovery is needed.
+  hostNetwork: false
+
+  service:
+    type: NodePort
+    port: 8123
+    # Only used when type is NodePort.
+    nodePort: 31812
+
+  persistence:
+    # PVC for /config (HA state, dashboards, .storage/).
+    storageClassName: local-path
+    size: 5Gi
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+
+postgres:
+  # Deploy the PostgreSQL StatefulSet used as HA's recorder backend.
+  enabled: true
+
+  image:
+    repository: postgres
+    tag: 16-alpine
+    # Kubernetes default for pinned tags is IfNotPresent; keep the same.
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 5432
+
+  persistence:
+    # PVC for /var/lib/postgresql/data.
+    storageClassName: local-path
+    size: 10Gi
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+secrets:
+  # -- PostgreSQL superuser / recorder DB owner
+  postgresUser: "homeassistant"
+  # -- PostgreSQL password (change before deploying; must match
+  #    recorder_db_url in your HA config/secrets.yaml)
+  postgresPassword: "changeme"
+  # -- PostgreSQL database name
+  postgresDb: "homeassistant"
