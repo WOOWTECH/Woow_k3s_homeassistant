@@ -1,8 +1,22 @@
+# Real secrets must never be committed - only examples/secrets.example.yaml.
+# Patterns are anchored to the repo root (leading /) on purpose: an unanchored
+# "secrets.yaml" would also match templates/secrets.yaml and keep the chart's
+# own Secret template out of git.
+.env
+.env.*
+*.env
+/secrets.yaml
+/*-secrets.yaml
+/*.secret.yaml
+/*secrets.values.yaml
+/*.local.yaml
+!/templates/secrets.yaml
+
 # Helm packaging output
 *.tgz
 charts/
 
-# Local overrides (never commit real secrets)
+# Local overrides (never commit real values)
 values.local.yaml
 values-*.local.yaml
 

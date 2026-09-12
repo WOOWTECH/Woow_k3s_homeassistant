@@ -2,8 +2,13 @@
 *.tgz
 .git/
 .gitignore
+.github/
+.helmignore
 *.swp
 *.bak
 *.tmp
 *.orig
 .DS_Store
+README*.md
+examples/
+

@@ -1,0 +1,156 @@
+name: chart
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch: {}
+
+env:
+  # Dummy values only: exercises templates/secret.yaml without any real password.
+  SECRETS: secrets.create=true,secrets.postgresUser=x,secrets.postgresPassword=x,secrets.postgresDb=x
+  KUBECONFORM_VERSION: v0.6.7
+  KUBECONFORM_SHA256: 95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.19.5
+
+      - name: helm lint
+        run: |
+          helm lint .
+          helm lint . --set "$SECRETS"
+
+      - name: helm template (every values combination)
+        run: |
+          mkdir -p /tmp/r
+          # Default values, chart's own namespace.name as -n (the common case:
+          # release namespace == namespace.name, so the Namespace is skipped).
+          helm template homeassistant . -n homeassistant                              > /tmp/r/default.yaml
+          # -n different from namespace.name: the Namespace DOES render, with the keep policy.
+          helm template homeassistant . -n foo                                        > /tmp/r/other-ns.yaml
+          # No -n at all (defaults to "default"): same as other-ns, exercises the common default render.
+          helm template homeassistant .                                               > /tmp/r/no-release-ns.yaml
+          helm template homeassistant . -n homeassistant --set "$SECRETS"             > /tmp/r/secrets.yaml
+          helm template homeassistant . -n homeassistant --set "$SECRETS" --set keepOnUninstall=false > /tmp/r/no-keep.yaml
+          helm template homeassistant . -n homeassistant --set postgres.enabled=false  > /tmp/r/no-postgres.yaml
+          helm template homeassistant . -n homeassistant --set tests.enabled=false     > /tmp/r/no-tests.yaml
+          helm template homeassistant . -n homeassistant --set homeassistant.hostNetwork=true > /tmp/r/hostnetwork.yaml
+          # The shape of a test install: own namespace, disposable storage, generated creds.
+          helm template homeassistant . -n ht-homeassistant \
+            --set namespace.name=ht-homeassistant \
+            --set homeassistant.persistence.storageClassName=longhorn-delete \
+            --set postgres.persistence.storageClassName=longhorn-delete \
+            --set "$SECRETS"                                                          > /tmp/r/test-install.yaml
+          wc -l /tmp/r/*.yaml
+
+      - name: Every template is tracked and renders
+        run: |
+          # An unanchored .gitignore pattern once could keep a chart template out of git.
+          for f in $(find templates -type f); do
+            if git check-ignore --no-index -q "$f"; then echo "::error::$f is matched by .gitignore"; exit 1; fi
+          done
+          # secret.yaml only renders with secrets.create=true; every other template
+          # renders in the default combo.
+          for f in $(find templates -type f -name '*.yaml' ! -name 'secret.yaml'); do
+            grep -q "^# Source: homeassistant/$f\$" /tmp/r/*.yaml || { echo "::error::$f never renders"; exit 1; }
+          done
+          grep -q '^# Source: homeassistant/templates/secret.yaml$' /tmp/r/secrets.yaml || { echo "::error::templates/secret.yaml never renders"; exit 1; }
+          echo "every template is tracked and renders"
+
+      - name: kubeconform (schema validation)
+        run: |
+          curl -sSLo /tmp/kc.tgz https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz
+          echo "${KUBECONFORM_SHA256}  /tmp/kc.tgz" | sha256sum -c -
+          tar -xzf /tmp/kc.tgz -C /usr/local/bin kubeconform
+          kubeconform -strict -summary /tmp/r/*.yaml
+
+      - name: Required secret fields are enforced
+        run: |
+          if helm template homeassistant . --set secrets.create=true > /dev/null 2>&1; then
+            echo "::error::secrets.create=true rendered without any secret values"; exit 1
+          fi
+          for k in postgresUser postgresPassword postgresDb; do
+            set_without=$(echo "$SECRETS" | tr ',' '\n' | grep -v "^secrets.$k=" | paste -sd, -)
+            if out=$(helm template homeassistant . -n homeassistant --set "$set_without" 2>&1); then
+              echo "::error::secrets.$k is not enforced"; exit 1
+            fi
+            echo "$out" | grep -q "secrets.$k is required" || { echo "::error::wrong error for $k: $out"; exit 1; }
+          done
+          echo "required() guards fire"
+          n=$(grep -c '^kind: Secret$' /tmp/r/secrets.yaml || true)
+          [ "$n" -eq 1 ] || { echo "::error::expected 1 Secret with secrets.create=true, got $n"; exit 1; }
+          echo "secrets.create=true renders the Secret"
+
+      - name: Keep policy on the Namespace, PVCs and the Secret
+        run: |
+          python3 - <<'EOF'
+          import sys, yaml
+          def objs(f): return [d for d in yaml.safe_load_all(open(f)) if d]
+          bad = []
+          # other-ns.yaml renders the Namespace (namespace.name "homeassistant" != -n foo);
+          # secrets.yaml renders the chart-created Secret; both files have the two PVCs.
+          for d in objs("/tmp/r/secrets.yaml") + objs("/tmp/r/other-ns.yaml"):
+              if d["kind"] in ("Namespace", "PersistentVolumeClaim", "Secret"):
+                  if (d["metadata"].get("annotations") or {}).get("helm.sh/resource-policy") != "keep":
+                      bad.append(f"{d['kind']}/{d['metadata']['name']} has no keep policy")
+          for d in objs("/tmp/r/default.yaml"):
+              if d["kind"] == "Namespace" and d["metadata"]["name"] == "homeassistant":
+                  bad.append("the release namespace must never be rendered")
+          sys.exit("\n".join(bad)) if bad else print("keep policy present; release namespace not rendered")
+          EOF
+
+      - name: No real secret committed
+        run: |
+          python3 - <<'EOF'
+          import glob, sys, yaml
+          bad = []
+          s = yaml.safe_load(open("values.yaml"))["secrets"]
+          for k, v in s.items():
+              if k in ("create", "existingSecretName"):
+                  continue
+              if v:
+                  bad.append(f"values.yaml secrets.{k} must be empty, got {v!r}")
+          for d in yaml.safe_load_all(open("examples/secrets.example.yaml")):
+              for k, v in ((d or {}).get("stringData") or {}).items():
+                  if k not in ("POSTGRES_USER", "POSTGRES_DB") and "REPLACE_ME" not in str(v):
+                      bad.append(f"examples: {d['metadata']['name']}.{k} is not a placeholder")
+          for f in ("/tmp/r/default.yaml", "/tmp/r/other-ns.yaml", "/tmp/r/no-release-ns.yaml"):
+              for d in yaml.safe_load_all(open(f)):
+                  if d and d["kind"] == "Secret":
+                      bad.append(f"{f} must not contain a Secret (secrets.create=false)")
+          sys.exit("\n".join(bad)) if bad else print("no secrets committed")
+          EOF
+
+      - name: privileged is gone
+        run: |
+          if grep -rn 'privileged' templates/homeassistant-deployment.yaml; then
+            echo "::error::privileged still referenced in the HA container spec"; exit 1
+          fi
+          python3 - <<'EOF'
+          import sys, yaml
+          bad = []
+          for f in ["/tmp/r/default.yaml", "/tmp/r/hostnetwork.yaml"]:
+              for d in yaml.safe_load_all(open(f)):
+                  if d and d["kind"] == "Deployment" and d["metadata"]["name"] == "homeassistant":
+                      for c in d["spec"]["template"]["spec"]["containers"]:
+                          if (c.get("securityContext") or {}).get("privileged"):
+                              bad.append(f"{f}: container {c['name']} still has privileged: true")
+          sys.exit("\n".join(bad)) if bad else print("no privileged container")
+          EOF
+
+      - name: Shell scripts parse
+        run: |
+          shopt -s nullglob
+          scripts=(scripts/*.sh)
+          if [ ${#scripts[@]} -eq 0 ]; then
+            echo "no scripts/*.sh in this chart"
+          else
+            bash -n "${scripts[@]}"
+          fi
