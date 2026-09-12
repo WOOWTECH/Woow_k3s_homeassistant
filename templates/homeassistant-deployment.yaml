@@ -44,7 +44,7 @@ spec:
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: postgres-secret
+                  name: {{ .Values.secrets.existingSecretName }}
                   key: POSTGRES_PASSWORD
       {{- end }}
       containers:
@@ -63,7 +63,7 @@ spec:
                   key: TZ
           envFrom:
             - secretRef:
-                name: postgres-secret
+                name: {{ .Values.secrets.existingSecretName }}
           volumeMounts:
             - name: ha-config
               mountPath: /config
@@ -93,8 +93,6 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 30
-          securityContext:
-            privileged: true
       volumes:
         - name: ha-config
           persistentVolumeClaim:

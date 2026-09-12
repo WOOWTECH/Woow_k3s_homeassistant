@@ -1,0 +1,63 @@
+{{- /*
+`helm test` smoke pod, read-only:
+  - the homeassistant Service on its configured port answers with an
+    HTTP status in the 2xx/3xx range (onboarding wizard or login page)
+  - (if postgres.enabled) pg_isready against the postgres Service, using
+    the same existingSecretName the app containers read
+Nothing here writes to Home Assistant or the database.
+*/ -}}
+{{- if .Values.tests.enabled }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-smoke
+  namespace: {{ include "homeassistant.ns" . }}
+  labels:
+    app: homeassistant
+    app.kubernetes.io/component: smoke-test
+  annotations:
+    helm.sh/hook: test
+    # Kept until the next `helm test` so `helm test --logs` can always read it.
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  restartPolicy: Never
+  containers:
+    - name: web-ui
+      image: curlimages/curl:8.10.1
+      command: ["sh", "-c"]
+      args:
+        - |
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
+            http://homeassistant.{{ include "homeassistant.ns" . }}.svc.cluster.local:{{ .Values.homeassistant.service.port }}/)
+          echo "GET / -> HTTP $code"
+          case "$code" in
+            2??|3??) echo "web UI OK" ;;
+            *) echo "unexpected status: $code"; exit 1 ;;
+          esac
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 250m
+          memory: 128Mi
+    {{- if .Values.postgres.enabled }}
+    - name: postgres-ready
+      image: "{{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag }}"
+      envFrom:
+        - secretRef:
+            name: {{ .Values.secrets.existingSecretName }}
+      command: ["sh", "-c"]
+      args:
+        - |
+          pg_isready -h postgres.{{ include "homeassistant.ns" . }}.svc.cluster.local \
+            -p {{ .Values.postgres.service.port }} -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 250m
+          memory: 128Mi
+    {{- end }}
+{{- end }}

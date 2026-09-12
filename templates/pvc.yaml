@@ -8,6 +8,7 @@ metadata:
   labels:
     app: homeassistant
     component: homeassistant
+  {{- include "homeassistant.keepAnnotations" . | nindent 2 }}
 spec:
   accessModes:
     - ReadWriteOnce
@@ -26,6 +27,7 @@ metadata:
   labels:
     app: homeassistant
     component: postgres
+  {{- include "homeassistant.keepAnnotations" . | nindent 2 }}
 spec:
   accessModes:
     - ReadWriteOnce

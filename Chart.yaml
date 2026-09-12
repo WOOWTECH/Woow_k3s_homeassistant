@@ -4,7 +4,7 @@ description: >-
   Home Assistant smart-home platform on K3s/Kubernetes, backed by a
   PostgreSQL StatefulSet as the recorder database (replaces SQLite).
 type: application
-version: 1.0.0
+version: 1.1.0
 appVersion: "stable"
 kubeVersion: ">=1.24.0-0"
 keywords:

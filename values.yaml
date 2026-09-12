@@ -4,10 +4,16 @@
 # PostgreSQL 16 recorder backend).
 
 namespace:
-  # Create the target namespace as part of the release.
-  # Set to false if the namespace is managed elsewhere.
+  # Render the Namespace object. A namespace equal to the release namespace
+  # (`-n`) is never rendered - create it with --create-namespace instead - so
+  # `helm uninstall` can never delete the namespace the release lives in.
   create: true
   name: homeassistant
+
+# Add `helm.sh/resource-policy: keep` to the Namespace (when rendered), the
+# two PVCs and the chart-created Secret, so `helm uninstall` never deletes
+# Home Assistant's /config state or the Postgres recorder database.
+keepOnUninstall: true
 
 homeassistant:
   image:
@@ -74,10 +80,23 @@ postgres:
       memory: 512Mi
 
 secrets:
-  # -- PostgreSQL superuser / recorder DB owner
-  postgresUser: "homeassistant"
-  # -- PostgreSQL password (change before deploying; must match
+  # false (default): the Secret named existingSecretName already exists
+  #   (created from examples/secrets.example.yaml) and the chart never
+  #   renders it, so a `helm upgrade` can never overwrite a real password.
+  # true: render the Secret from the values below (fresh installs, tests).
+  create: false
+  # Name of the Postgres credentials Secret, existing or chart-created.
+  # The probes and both containers reference this exact name; the wait-for-postgres
+  # initContainer and the recorder both need POSTGRES_USER/PASSWORD/DB from it.
+  existingSecretName: "postgres-secret"
+  # -- PostgreSQL superuser / recorder DB owner (only used when create=true)
+  postgresUser: ""
+  # -- PostgreSQL password (only used when create=true; must also match
   #    recorder_db_url in your HA config/secrets.yaml)
-  postgresPassword: "changeme"
-  # -- PostgreSQL database name
-  postgresDb: "homeassistant"
+  postgresPassword: ""
+  # -- PostgreSQL database name (only used when create=true)
+  postgresDb: ""
+
+tests:
+  # `helm test` smoke pod: HA web UI on 8123, Postgres pg_isready. Read-only.
+  enabled: true

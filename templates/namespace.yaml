@@ -1,4 +1,10 @@
-{{- if .Values.namespace.create }}
+{{- /*
+A Namespace equal to the release namespace is never rendered: Helm keeps its
+release record there, so it is created with --create-namespace instead and
+can never be deleted by `helm uninstall`. When a different namespace.name IS
+rendered, it carries the keep policy so `helm uninstall` cannot remove it.
+*/ -}}
+{{- if and .Values.namespace.create (ne .Values.namespace.name .Release.Namespace) }}
 ---
 apiVersion: v1
 kind: Namespace
@@ -7,4 +13,5 @@ metadata:
   labels:
     app: homeassistant
     managed-by: helm
+  {{- include "homeassistant.keepAnnotations" . | nindent 2 }}
 {{- end }}
