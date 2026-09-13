@@ -4,7 +4,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: postgres
-  namespace: {{ .Values.namespace.name }}
+  namespace: {{ include "homeassistant.ns" . }}
   labels:
     app: homeassistant
     component: postgres

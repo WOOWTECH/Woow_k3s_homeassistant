@@ -3,7 +3,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: homeassistant
-  namespace: {{ .Values.namespace.name }}
+  namespace: {{ include "homeassistant.ns" . }}
   labels:
     app: homeassistant
     component: homeassistant
@@ -35,7 +35,7 @@ spec:
             - sh
             - -c
             - |
-              until pg_isready -h postgres.{{ .Values.namespace.name }}.svc.cluster.local -p 5432 -U homeassistant; do
+              until pg_isready -h postgres.{{ include "homeassistant.ns" . }}.svc.cluster.local -p 5432 -U homeassistant; do
                 echo "Waiting for PostgreSQL to be ready..."
                 sleep 2
               done
