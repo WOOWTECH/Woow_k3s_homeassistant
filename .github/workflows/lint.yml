@@ -34,7 +34,7 @@ jobs:
           # release namespace == namespace.name, so the Namespace is skipped).
           helm template homeassistant . -n homeassistant                              > /tmp/r/default.yaml
           # -n different from namespace.name: the Namespace DOES render, with the keep policy.
-          helm template homeassistant . -n foo                                        > /tmp/r/other-ns.yaml
+          helm template homeassistant . -n foo --set namespace.create=true --set namespace.name=homeassistant-elsewhere > /tmp/r/other-ns.yaml
           # No -n at all (defaults to "default"): same as other-ns, exercises the common default render.
           helm template homeassistant .                                               > /tmp/r/no-release-ns.yaml
           helm template homeassistant . -n homeassistant --set "$SECRETS"             > /tmp/r/secrets.yaml
@@ -94,7 +94,8 @@ jobs:
           import sys, yaml
           def objs(f): return [d for d in yaml.safe_load_all(open(f)) if d]
           bad = []
-          # other-ns.yaml renders the Namespace (namespace.name "homeassistant" != -n foo);
+          # other-ns.yaml renders the Namespace: namespace.name is set explicitly to
+          # something other than -n, because it now defaults to "" so that -n wins.
           # secrets.yaml renders the chart-created Secret; both files have the two PVCs.
           for d in objs("/tmp/r/secrets.yaml") + objs("/tmp/r/other-ns.yaml"):
               if d["kind"] in ("Namespace", "PersistentVolumeClaim", "Secret"):
@@ -154,3 +155,28 @@ jobs:
           else
             bash -n "${scripts[@]}"
           fi
+
+      - name: "-n controls object placement (namespace footgun)"
+        run: |
+          # A values-file `namespace.name` that silently beats `-n` is how a
+          # rehearsal once wrote Helm ownership annotations onto a live
+          # production Deployment. Every object must land in the namespace
+          # given by -n when namespace.name is left at its empty default.
+          got=$(helm template t . -n SENTINEL --skip-tests  | grep "^  namespace:" | sort -u)
+          if [ "$got" != "  namespace: SENTINEL" ]; then
+            echo "::error::. ignores -n: $got"; exit 1
+          fi
+          echo "-n controls placement for every chart"
+
+      - name: namespace.name must default to empty
+        run: |
+          python3 - <<'EOF'
+          import sys, yaml, glob
+          bad = []
+          for f in glob.glob("**/values.yaml", recursive=True):
+              v = yaml.safe_load(open(f)) or {}
+              n = (v.get("namespace") or {})
+              if isinstance(n, dict) and n.get("name"):
+                  bad.append(f"{f}: namespace.name defaults to {n['name']!r}; it must be \"\" so -n wins")
+          sys.exit("\n".join(bad)) if bad else print("namespace.name defaults are empty")
+          EOF

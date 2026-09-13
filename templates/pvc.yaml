@@ -4,7 +4,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: ha-config
-  namespace: {{ .Values.namespace.name }}
+  namespace: {{ include "homeassistant.ns" . }}
   labels:
     app: homeassistant
     component: homeassistant
@@ -23,7 +23,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: postgres-data
-  namespace: {{ .Values.namespace.name }}
+  namespace: {{ include "homeassistant.ns" . }}
   labels:
     app: homeassistant
     component: postgres

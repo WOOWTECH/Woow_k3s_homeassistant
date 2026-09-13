@@ -8,7 +8,10 @@ namespace:
   # (`-n`) is never rendered - create it with --create-namespace instead - so
   # `helm uninstall` can never delete the namespace the release lives in.
   create: true
-  name: homeassistant
+  # EMPTY BY DEFAULT so `-n` controls placement. A non-empty value here
+  # silently overrides `-n`, which is how a rehearsal once wrote Helm
+  # ownership annotations onto a live production Deployment.
+  name: ""
 
 # Add `helm.sh/resource-policy: keep` to the Namespace (when rendered), the
 # two PVCs and the chart-created Secret, so `helm uninstall` never deletes
