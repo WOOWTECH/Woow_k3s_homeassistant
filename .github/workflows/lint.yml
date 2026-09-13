@@ -34,7 +34,7 @@ jobs:
           # release namespace == namespace.name, so the Namespace is skipped).
           helm template homeassistant . -n homeassistant                              > /tmp/r/default.yaml
           # -n different from namespace.name: the Namespace DOES render, with the keep policy.
-          helm template homeassistant . -n foo                                        > /tmp/r/other-ns.yaml
+          helm template homeassistant . -n foo --set namespace.create=true --set namespace.name=homeassistant-elsewhere > /tmp/r/other-ns.yaml
           # No -n at all (defaults to "default"): same as other-ns, exercises the common default render.
           helm template homeassistant .                                               > /tmp/r/no-release-ns.yaml
           helm template homeassistant . -n homeassistant --set "$SECRETS"             > /tmp/r/secrets.yaml
@@ -94,7 +94,8 @@ jobs:
           import sys, yaml
           def objs(f): return [d for d in yaml.safe_load_all(open(f)) if d]
           bad = []
-          # other-ns.yaml renders the Namespace (namespace.name "homeassistant" != -n foo);
+          # other-ns.yaml renders the Namespace: namespace.name is set explicitly to
+          # something other than -n, because it now defaults to "" so that -n wins.
           # secrets.yaml renders the chart-created Secret; both files have the two PVCs.
           for d in objs("/tmp/r/secrets.yaml") + objs("/tmp/r/other-ns.yaml"):
               if d["kind"] in ("Namespace", "PersistentVolumeClaim", "Secret"):
